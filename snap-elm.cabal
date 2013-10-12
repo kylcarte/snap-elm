@@ -10,6 +10,10 @@ category:            Web
 build-type:          Simple
 cabal-version:       >=1.10
 
+extra-source-files:
+  LICENSE,
+  Setup.hs
+
 library
   exposed-modules:     Snap.Elm
   -- other-extensions:    
