@@ -37,7 +37,7 @@ directores that Elm will use to build and cache the compiled files.
 >     addRoutes $ routes opts
 >     ...
 
-|-}
+-}
 
 module Snap.Elm where
 
@@ -58,6 +58,7 @@ import           System.FilePath
 import           System.Process
 ------------------------------------------------------------------------------
 
+------------------------------------------------------------------------------
 -- | A set of options to coordinate the serving of Elm files and runtime.
 data ElmOptions = ElmOptions
   { elmRuntimeURI  :: ByteString
@@ -66,17 +67,19 @@ data ElmOptions = ElmOptions
   , elmCachePath   :: FilePath
   }
 
+------------------------------------------------------------------------------
 -- | The default set of options for serving Elm files.
---   This will use "static/js/elm-runtime.js" as the URI
---   for the Elm runtime, so you should use a custom route
---   if the route conflicts with another, for some reason.
+-- This will use "static/js/elm-runtime.js" as the URI
+-- for the Elm runtime, so you should use a custom route
+-- if the route conflicts with another, for some reason.
 defaultElmOptions :: MonadIO m => m ElmOptions
 defaultElmOptions = mkElmOptions
-  "static/js/elm-runtime.js"
+  "/static/js/elm-runtime.js"
   Nothing
   Nothing
   Nothing
 
+------------------------------------------------------------------------------
 -- | Construct a custom set of options.
 mkElmOptions :: MonadIO m
   => ByteString     -- ^ Route at which to serve Elm runtime
@@ -90,8 +93,9 @@ mkElmOptions uri mr mb mc = do
   let cp = fromMaybe "elm-cache" mc
   return $ ElmOptions uri rt bp cp
 
+------------------------------------------------------------------------------
 -- | Serve an Elm file. The 'ElmOptions' argument can be
---   constructed at the initialization of your app.
+-- constructed at the initialization of your app.
 serveElm :: MonadSnap m => ElmOptions -> FilePath -> m ()
 serveElm opts fp = when (takeExtension fp == ".elm") $ do
   let args = [ "--make" 
@@ -107,17 +111,20 @@ serveElm opts fp = when (takeExtension fp == ".elm") $ do
                        , T.pack out
                        , T.pack err
                        ]
-    ExitSuccess   -> serveFile (buildPath </> replaceExtension fp "html")
+    ExitSuccess   -> serveFile $ buildPath </> replaceExtension fp "html"
   where
   buildPath   = elmBuildPath opts
   cachePath   = elmCachePath opts
   runtimeURI  = C8.unpack $ elmRuntimeURI opts
 
+------------------------------------------------------------------------------
 -- | A route handler for the Elm runtime. If given the 'ElmOptions' used
---   by 'serveElm', it will place the runtime at the route the Elm file
---   will expect, as per the <script src=".../runtime.js"> element included
---   in the compiled file's <head> section.
+-- by 'serveElm', it will place the runtime at the route the Elm file
+-- will expect, as per the <script src=".../runtime.js"> element included
+-- in the compiled file's <head> section.
 serveElmRuntime :: MonadSnap m => ElmOptions -> (ByteString, m ())
 serveElmRuntime opts =
-  (elmRuntimeURI opts, serveFile $ elmRuntimePath opts)
+  ( elmRuntimeURI opts
+  , serveFile $ elmRuntimePath opts
+  )
 
