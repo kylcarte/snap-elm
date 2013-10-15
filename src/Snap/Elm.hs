@@ -68,9 +68,17 @@ data ElmOptions = ElmOptions
   }
 
 -- | The default set of options for serving Elm files.
--- This will use "static/js/elm-runtime.js" as the URI
--- for the Elm runtime, so you should use a custom route
--- if the route conflicts with another, for some reason.
+-- The values are as follows (IO aside):
+--
+-- > ElmOptions
+-- >   { elmIsVerbose   = False
+-- >   , elmRuntimeURI  = "/static/js/elm-runtime.js"
+-- >   , elmRuntimePath = <Language.Elm.runtime>
+-- >   , elmSourcePath  = "."
+-- >   , elmBuildPath   = "elm-build"
+-- >   , elmCachePath   = "elm-cache"
+-- >   }
+--
 defaultElmOptions :: MonadIO m => m ElmOptions
 defaultElmOptions = do
   let v = False
