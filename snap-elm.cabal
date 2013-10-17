@@ -1,5 +1,5 @@
 name:                snap-elm
-version:             0.1.1.1
+version:             0.1.1.2
 synopsis:            Serve Elm files through the Snap web framework.
 license:             BSD3
 license-file:        LICENSE
@@ -16,7 +16,6 @@ extra-source-files:
 
 library
   exposed-modules:     Snap.Elm
-  -- other-extensions:    
   build-depends:       base         >=4.6 && <5,
                        bytestring   >=0.10,
                        Elm          >=0.9,

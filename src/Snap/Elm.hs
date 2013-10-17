@@ -18,7 +18,7 @@ Then, provide routes to the Elm runtime, and to any Elm files
 you wish to serve.
 
 > routes opts =
->     [ ("/elm", serveElm opts "static/elm/test.elm")
+>     [ ("/elm", serveElmFile opts "static/elm/test.elm")
 >     , ...
 >     , serveElmRuntime opts
 >     ]
@@ -40,7 +40,19 @@ relative or absolute.
 
 -}
 
-module Snap.Elm where
+module Snap.Elm
+  ( ElmOptions (..)
+  , defaultElmOptions
+  , setElmVerbose
+  , setElmRuntimeURI
+  , setElmRuntimePath
+  , setElmSourcePath
+  , setElmBuildPath
+  , setElmCachePath
+  , serveElmFile
+  , serveElmDirectory
+  , serveElmRuntime
+  ) where
 
 import           Control.Monad
 import           Control.Monad.IO.Class
@@ -48,10 +60,10 @@ import           Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as C8
 import           Data.Monoid
 import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import           Snap.Core
 import           Snap.Util.FileServe
 import qualified Language.Elm as Elm
-import           GHC.IO.Handle
 import           System.Directory
 import           System.Exit
 import           System.FilePath
@@ -119,42 +131,42 @@ setElmCachePath :: FilePath -> ElmOptions -> ElmOptions
 setElmCachePath cch opts = opts { elmCachePath = cch }
 
 -- | Compile and serve an Elm file.
-serveElm :: MonadSnap m => ElmOptions -> FilePath -> m ()
-serveElm opts fp = when (takeExtension fp == ".elm") $ do
-  cd <- liftIO getCurrentDirectory
-  let runtimeURI = C8.unpack        (elmRuntimeURI opts)
-  let sourcePath = makeAbsolutePath (elmSourcePath opts) cd
-  let buildPath  = makeAbsolutePath (elmBuildPath  opts) cd
-  let cachePath  = makeAbsolutePath (elmCachePath  opts) cd
-  let args = [ "--make" 
-             , "--runtime="   ++ runtimeURI
-             , "--build-dir=" ++ buildPath
-             , "--cache-dir=" ++ cachePath
-             , fp
-             ]
+serveElmFile :: MonadSnap m => ElmOptions -> FilePath -> m ()
+serveElmFile opts fp = when (takeExtension fp == ".elm") $ do
+  mBin <- liftIO $ findExecutable "elm"
+  case mBin of
+    Nothing -> elmError fp "No executable 'elm' in PATH"
+    Just bin -> do
+      cd <- liftIO getCurrentDirectory
+      let runtimeURI = C8.unpack        (elmRuntimeURI opts)
+      let sourcePath = makeAbsolutePath (elmSourcePath opts) cd
+      let buildPath  = makeAbsolutePath (elmBuildPath  opts) cd
+      let cachePath  = makeAbsolutePath (elmCachePath  opts) cd
+      let args = [ "--make" 
+                 , "--runtime="   ++ runtimeURI
+                 , "--build-dir=" ++ buildPath
+                 , "--cache-dir=" ++ cachePath
+                 , fp
+                 ]
 
-  ifVerbose $ liftIO $ do
-    putStrLn "Elm:"
-    putStrLn $ "  $ cd " ++ elmSourcePath opts
-    putStrLn $ unwords $ "  $ elm" : args
+      ifVerbose $ liftIO $ do
+        putStrLn "Elm:"
+        putStrLn $ "  $ cd " ++ elmSourcePath opts
+        putStrLn $ unwords $ ("  $ " <> bin) : args
 
-  (_,hOut,hErr,pid) <- liftIO $ runInteractiveProcess "elm" args
-                         (Just sourcePath)
-                         Nothing
-  out <- liftIO $ hGetContents hOut
-  err <- liftIO $ hGetContents hErr
-  ec  <- liftIO $ waitForProcess pid
-  ifVerbose $ liftIO $ putStrLn $ indent out
+      (_,hOut,hErr,pid) <- liftIO $ runInteractiveProcess bin args
+                             (Just sourcePath)
+                             Nothing
+      out <- liftIO $ T.hGetContents hOut
+      err <- liftIO $ T.hGetContents hErr
+      ec  <- liftIO $ waitForProcess pid
+      ifVerbose $ liftIO $ T.putStrLn $ indent out
 
-  case ec of
-    ExitFailure _ -> writeText $ T.unlines
-                       [ "Failed to build Elm file (" <> T.pack fp <> "):"
-                       , "  " <> T.pack err
-                       ]
-    ExitSuccess   -> serveFile $ buildPath </> replaceExtension fp "html"
+      case ec of
+        ExitFailure _ -> elmError fp $ indent $ T.unlines [ out , "" , err ]
+        ExitSuccess   -> serveFile $ buildPath </> replaceExtension fp "html"
   where
   ifVerbose = when $ elmIsVerbose opts
-  indent = unlines . map ("  " ++) . lines
 
   makeAbsolutePath :: FilePath -> FilePath -> FilePath
   makeAbsolutePath p cd = case p of
@@ -163,56 +175,54 @@ serveElm opts fp = when (takeExtension fp == ".elm") $ do
     '/':_ -> p
     _     -> cd </> p
 
--- | Serve a directory of Elm files, using a route parameter.
+-- | Serve a directory of Elm files.
 --
 -- For example, a list of routes could contain:
 --
 -- > routes opts =
 -- >   [ ...
--- >   , ("elm/:file", jerveElmDirectory opts "file")
+-- >   , serveElmDirectory opts "/elm"
 -- >   ]
 --
--- Then, following the example, if the ElmOptions contained @static/elm@
+-- In this example, if the ElmOptions contained @static/elm@
 -- as the sourcePath, the route @elm/file.elm@ would
--- be handled by @serveElm "file.elm"@, run with the working directory
+-- be handled by @serveElmFile "file.elm"@, run with the working directory
 -- @static/elm@.
 serveElmDirectory :: MonadSnap m
   => ElmOptions
-  -> ByteString
-  -- ^ Route parameter name by which to identify files
-  -> m ()
-serveElmDirectory opts pm = do
-  mf <- getParam pm
-  whenJust mf (serveElm opts . C8.unpack)
-  where
-  whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
-  whenJust m f = maybe (return ()) f m
-
-serveElmDirectory' :: MonadSnap m
-  => ElmOptions
-  -> ByteString
+  -> ByteString -- ^ Route for serving directory.
   -> (ByteString, m ())
-serveElmDirectory' opts d = (uri,handler)
+serveElmDirectory opts d = (uri,handler)
   where
   param = "file"
   uri
-    | C8.null d = "/:" <> param
+    | C8.null d        = "/:" <> param
     | C8.last d == '/' = d <> ":" <> param
-    | otherwise = d <> "/:" <> param
+    | otherwise        = d <> "/:" <> param
   handler = do
     mf <- getParam param
-    whenJust mf (serveElm opts . C8.unpack)
-  whenJust :: Monad m => Maybe a -> (a -> m ()) -> m ()
-  whenJust m f = maybe (return ()) f m
-
+    case mf of
+      Nothing -> return ()
+      Just f  -> serveElmFile opts . C8.unpack $ f
 
 -- | A route handler for the Elm runtime. If given the 'ElmOptions' used
--- by 'serveElm', it will place the runtime at the route the Elm file
--- will expect, as per the @<script src=".../runtime.js">@ element included
--- in the compiled file's @<head>@ section.
+-- by 'serveElmFile', it will place the runtime at the route the Elm file
+-- will expect, as per the @\<script src=".../runtime.js">@ element included
+-- in the compiled file's @\<head>@ section.
 serveElmRuntime :: MonadSnap m => ElmOptions -> (ByteString, m ())
 serveElmRuntime opts =
   ( elmRuntimeURI opts
   , serveFile $ elmRuntimePath opts
   )
+
+elmError :: MonadSnap m => FilePath -> T.Text -> m ()
+elmError fp msg = writeText $ T.unlines
+  [ "Failed to build Elm file (" <> T.pack fp <> "):"
+  , indent msg
+  ]
+
+indent :: T.Text -> T.Text
+indent = T.unlines . map (T.replicate n " " <>) . T.lines
+  where
+  n = 2
 
