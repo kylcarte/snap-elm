@@ -63,11 +63,13 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as T
 import           Snap.Core
 import           Snap.Util.FileServe
-import qualified Language.Elm as Elm
+import qualified Elm.Internal.Paths as ElmPath
 import           System.Directory
 import           System.Exit
 import           System.FilePath
 import           System.Process
+
+import Data.String
 
 -- | A set of options to coordinate the serving of Elm files and runtime.
 data ElmOptions = ElmOptions
@@ -92,14 +94,14 @@ data ElmOptions = ElmOptions
 -- >   }
 --
 defaultElmOptions :: MonadIO m => m ElmOptions
-defaultElmOptions = do
-  let v = False
-  let uri = "/static/js/elm-runtime.js"
-  rt <- liftIO Elm.runtime
-  let s = "."
-  let b = "elm-build"
-  let c = "elm-cache"
-  return $ ElmOptions v uri rt s b c
+defaultElmOptions = return ElmOptions
+  { elmIsVerbose = False
+  , elmRuntimeURI = "/static/js/elm-runtime.js"
+  , elmRuntimePath = ElmPath.runtime
+  , elmSourcePath = "."
+  , elmBuildPath = "elm-build"
+  , elmCachePath = "elm-cache"
+  }
 
 -- | Tell Elm to be verbose (print all executed commands and their output
 -- to stdout), or quiet (print nothing).
@@ -142,8 +144,8 @@ serveElmFile opts fp = when (takeExtension fp == ".elm") $ do
       let sourcePath = makeAbsolutePath (elmSourcePath opts) cd
       let buildPath  = makeAbsolutePath (elmBuildPath  opts) cd
       let cachePath  = makeAbsolutePath (elmCachePath  opts) cd
-      let args = [ "--make" 
-                 , "--runtime="   ++ runtimeURI
+      let args = [ "--make"
+                 , "--set-runtime="   ++ runtimeURI
                  , "--build-dir=" ++ buildPath
                  , "--cache-dir=" ++ cachePath
                  , fp
