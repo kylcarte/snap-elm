@@ -69,8 +69,6 @@ import           System.Exit
 import           System.FilePath
 import           System.Process
 
-import Data.String
-
 -- | A set of options to coordinate the serving of Elm files and runtime.
 data ElmOptions = ElmOptions
   { elmIsVerbose   :: Bool
